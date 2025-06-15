@@ -12,7 +12,7 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Клонируем публичный репозиторий
-RUN git clone https://github.com/devopshydclub/vprofile-project.git
+RUN git clone https://github.com/Regina117/MultitierAWS.git
 
 WORKDIR /app/vprofile-project
 
