@@ -1,0 +1,204 @@
+---
+- name: Configure MySQL server
+  gather_facts: true
+  hosts: mysql
+  become: true
+  vars:
+    ansible_python_interpreter: /usr/bin/python3.10
+    mysql_root_password: "{{ lookup('env', 'MYSQL_ROOT_PASSWORD') | default('securepassword', true) }}"
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      timeout: 300
+
+    - name: Install MySQL server
+      apt:
+        name: mysql-server
+        state: present
+
+    - name: Ensure MySQL service is running
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Install Python MySQL client
+      apt:
+        name: python3-mysqldb
+        state: present
+
+    - name: Set MySQL root password
+      community.mysql.mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        host: localhost
+        state: present
+        login_user: root
+        login_password: ""
+      ignore_errors: yes
+
+    - name: Remove anonymous MySQL users
+      community.mysql.mysql_user:
+        name: ""
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Remove MySQL test database
+      community.mysql.mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create .my.cnf for root
+      template:
+        src: templates/my.cnf.j2
+        dest: /root/.my.cnf
+        mode: '0600'
+
+- name: Configure Memcached server
+  gather_facts: true
+  hosts: memcached
+  become: true
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Memcached
+      apt:
+        name: memcached
+        state: present
+
+    - name: Ensure Memcached service is running
+      service:
+        name: memcached
+        state: started
+        enabled: true
+
+- name: Install Docker and run RabbitMQ container
+  gather_facts: true
+  hosts: rabbitmq
+  become: true
+  tasks:
+
+    - name: Install required packages
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - gnupg
+        state: present
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Add Docker GPG key
+      shell: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/docker-archive-keyring.gpg
+      when: ansible_os_family == "Debian"
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Update apt cache after adding Docker repo
+      apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Install Docker CE
+      apt:
+        name: docker-ce
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Ensure Docker service is running
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Pull RabbitMQ image
+      community.docker.docker_image:
+        name: rabbitmq:3-management
+        source: pull
+
+    - name: Run RabbitMQ container
+      community.docker.docker_container:
+        name: rabbitmq
+        image: rabbitmq:3-management
+        ports:
+          - "5672:5672"
+          - "15672:15672"
+        state: started
+        restart_policy: always
+
+- name: Configure Tomcat server
+  gather_facts: true
+  hosts: tomcat
+  become: true
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install OpenJDK
+      apt:
+        name: openjdk-11-jdk
+        state: present
+
+    - name: Install Tomcat
+      apt:
+        name: tomcat9
+        state: present
+
+    - name: Ensure Tomcat service is running
+      service:
+        name: tomcat9
+        state: started
+        enabled: true
+
+- name: Configure Nginx server
+  gather_facts: true
+  hosts: nginx
+  become: true
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Ensure Nginx service is running
+      service:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Configure Nginx to proxy to Tomcat
+      template:
+        src: templates/nginx-tomcat.conf.j2
+        dest: /etc/nginx/sites-available/tomcat
+        mode: '0644'
+      notify: Restart Nginx
+
+  handlers:
+    - name: Restart Nginx
+      service:
+        name: nginx
+        state: restarted

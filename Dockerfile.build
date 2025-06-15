@@ -1,0 +1,22 @@
+FROM eclipse-temurin:17-jdk-jammy as builder
+
+# Устанавливаем Git, Maven и необходимые зависимости
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    git \
+    maven \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Клонируем публичный репозиторий
+RUN git clone https://github.com/Regina117/MultitierAWS.git
+
+WORKDIR /app/vprofile-project
+
+# Запускаем сборку с помощью Maven
+RUN mvn clean package -DskipTests
+
+# Сохраняем артефакт в том месте, откуда его сможет забрать следующий этап
+CMD ["sh", "-c", "cp /app/vprofile-project/target/*.war /output/"]
